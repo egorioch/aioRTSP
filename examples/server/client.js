@@ -1,8 +1,8 @@
 // get DOM elements
 var dataChannelLog = document.getElementById('data-channel'),
-    iceConnectionLog = document.getElementById('ice-connection-state'),
-    iceGatheringLog = document.getElementById('ice-gathering-state'),
-    signalingLog = document.getElementById('signaling-state');
+  iceConnectionLog = document.getElementById('ice-connection-state'),
+  iceGatheringLog = document.getElementById('ice-gathering-state'),
+  signalingLog = document.getElementById('signaling-state');
 
 // peer connection
 var pc = null;
@@ -22,52 +22,56 @@ function createPeerConnection() {
     pc = new RTCPeerConnection(config);
 
     // register some listeners to help debugging
-    pc.addEventListener('icegatheringstatechange', function() {
+    pc.addEventListener('icegatheringstatechange', function () {
         iceGatheringLog.textContent += ' -> ' + pc.iceGatheringState;
     }, false);
     iceGatheringLog.textContent = pc.iceGatheringState;
 
-    pc.addEventListener('iceconnectionstatechange', function() {
+    pc.addEventListener('iceconnectionstatechange', function () {
         iceConnectionLog.textContent += ' -> ' + pc.iceConnectionState;
     }, false);
     iceConnectionLog.textContent = pc.iceConnectionState;
 
-    pc.addEventListener('signalingstatechange', function() {
+    pc.addEventListener('signalingstatechange', function () {
         signalingLog.textContent += ' -> ' + pc.signalingState;
     }, false);
     signalingLog.textContent = pc.signalingState;
 
     // connect audio / video
-    pc.addEventListener('track', function(evt) {
-        if (evt.track.kind == 'video')
-            document.getElementById('video').srcObject = evt.streams[0];
-        else
-            document.getElementById('audio').srcObject = evt.streams[0];
+    pc.addEventListener('track', function (evt) {
+        console.log('new track event.type.kind: ' + evt.type.kind)
+        if (evt.track.kind == 'video') document.getElementById('video').srcObject = evt.streams[0];
+        else document.getElementById('audio').srcObject = evt.streams[0];
     });
 
     return pc;
 }
 
 function negotiate() {
-    return pc.createOffer().then(function(offer) {
+    // возвращает обещание, которое должно исполнится в новый оффер
+    return pc.createOffer().then(function (offer) {
+        console.log('offer in Negotiate: ' + offer)
         return pc.setLocalDescription(offer);
-    }).then(function() {
+    }).then(function () {
         // wait for ICE gathering to complete
-        return new Promise(function(resolve) {
+        return new Promise(function (resolve) {
             if (pc.iceGatheringState === 'complete') {
                 resolve();
             } else {
                 function checkState() {
+                    console.log('в negotiate происходит чек-стейт(но зачем?)')
                     if (pc.iceGatheringState === 'complete') {
                         pc.removeEventListener('icegatheringstatechange', checkState);
                         resolve();
                     }
                 }
+
                 pc.addEventListener('icegatheringstatechange', checkState);
             }
         });
-    }).then(function() {
+    }).then(function () {
         var offer = pc.localDescription;
+        console.log('finally offer: ' + offer)
         var codec;
 
         codec = document.getElementById('audio-codec').value;
@@ -81,80 +85,88 @@ function negotiate() {
         }
 
         document.getElementById('offer-sdp').textContent = offer.sdp;
-        return fetch('/offer', {
+        return fetch('http://127.0.0.1:8080/offer', {
             body: JSON.stringify({
                 sdp: offer.sdp,
                 type: offer.type,
                 video_transform: document.getElementById('video-transform').value
-            }),
-            headers: {
+            }), headers: {
                 'Content-Type': 'application/json'
-            },
-            method: 'POST'
+            }, method: 'POST'
         });
-    }).then(function(response) {
+    }).then(function (response) {
+
         return response.json();
-    }).then(function(answer) {
+    }).then(function (answer) {
+        console.log('response json(after post-req to server): ' + answer)
         document.getElementById('answer-sdp').textContent = answer.sdp;
         return pc.setRemoteDescription(answer);
-    }).catch(function(e) {
+    }).catch(function (e) {
         alert(e);
     });
 }
 
+//выполняется после нажатия по кнопке start
 function start() {
     document.getElementById('start').style.display = 'none';
 
     pc = createPeerConnection();
+    console.log('Соединение установлено')
 
     var time_start = null;
 
-    function current_stamp() {
-        if (time_start === null) {
-            time_start = new Date().getTime();
-            return 0;
-        } else {
-            return new Date().getTime() - time_start;
-        }
-    }
+//    function current_stamp() {
+//        if (time_start === null) {
+//            time_start = new Date().getTime();
+//            return 0;
+//        } else {
+//            return new Date().getTime() - time_start;
+//        }
+//    }
 
-    if (document.getElementById('use-datachannel').checked) {
-        var parameters = JSON.parse(document.getElementById('datachannel-parameters').value);
-
-        dc = pc.createDataChannel('chat', parameters);
-        dc.onclose = function() {
-            clearInterval(dcInterval);
-            dataChannelLog.textContent += '- close\n';
-        };
-        dc.onopen = function() {
-            dataChannelLog.textContent += '- open\n';
-            dcInterval = setInterval(function() {
-                var message = 'ping ' + current_stamp();
-                dataChannelLog.textContent += '> ' + message + '\n';
-                dc.send(message);
-            }, 1000);
-        };
-        dc.onmessage = function(evt) {
-            dataChannelLog.textContent += '< ' + evt.data + '\n';
-
-            if (evt.data.substring(0, 4) === 'pong') {
-                var elapsed_ms = current_stamp() - parseInt(evt.data.substring(5), 10);
-                dataChannelLog.textContent += ' RTT ' + elapsed_ms + ' ms\n';
-            }
-        };
-    }
+//    if (document.getElementById('use-datachannel').checked) {
+//        var parameters = JSON.parse(document.getElementById('datachannel-parameters').value);
+//
+//        console.log(`Создание DataChannel chat(parameters: ${parameters})`)
+//        dc = pc.createDataChannel('chat', parameters);
+//
+//        dc.onclose = function () {
+//            // отключает ранее заданный setInterval(), dcInterval - его id
+//            clearInterval(dcInterval);
+//            dataChannelLog.textContent += '- close\n';
+//        };
+//        dc.onopen = function () {
+//            dataChannelLog.textContent += '- open\n';
+//            dcInterval = setInterval(function () {
+//                var message = 'ping ' + current_stamp();
+//                dataChannelLog.textContent += '> ' + message + '\n';
+//                dc.send(message);
+//            }, 1000);
+//        };
+//        dc.onmessage = function (evt) {
+//            dataChannelLog.textContent += '< ' + evt.data + '\n';
+//
+//            // pong - ответ с сервера, поддерживающие постоянное соединеине
+//            if (evt.data.substring(0, 4) === 'pong') {
+//                console.log('сообщение с сервера(every second): ' + evt.data)
+//                var elapsed_ms = current_stamp() - parseInt(evt.data.substring(5), 10);
+//                dataChannelLog.textContent += ' RTT ' + elapsed_ms + ' ms\n';
+//            }
+//        };
+//    }
 
     var constraints = {
-        audio: document.getElementById('use-audio').checked,
+        audio: document.getElementById('use-audio'),
         video: false
     };
 
     if (document.getElementById('use-video').checked) {
         var resolution = document.getElementById('video-resolution').value;
+        console.log('выбранное разрешение: ' + resolution)
         if (resolution) {
             resolution = resolution.split('x');
             constraints.video = {
-                width: parseInt(resolution[0], 0),
+                width: 1080,
                 height: parseInt(resolution[1], 0)
             };
         } else {
@@ -166,12 +178,12 @@ function start() {
         if (constraints.video) {
             document.getElementById('media').style.display = 'block';
         }
-        navigator.mediaDevices.getUserMedia(constraints).then(function(stream) {
-            stream.getTracks().forEach(function(track) {
+        navigator.mediaDevices.getUserMedia(constraints).then(function (stream) {
+            stream.getTracks().forEach(function (track) {
                 pc.addTrack(track, stream);
             });
             return negotiate();
-        }, function(err) {
+        }, function (err) {
             alert('Could not acquire media: ' + err);
         });
     } else {
@@ -191,7 +203,7 @@ function stop() {
 
     // close transceivers
     if (pc.getTransceivers) {
-        pc.getTransceivers().forEach(function(transceiver) {
+        pc.getTransceivers().forEach(function (transceiver) {
             if (transceiver.stop) {
                 transceiver.stop();
             }
@@ -199,12 +211,12 @@ function stop() {
     }
 
     // close local audio / video
-    pc.getSenders().forEach(function(sender) {
+    pc.getSenders().forEach(function (sender) {
         sender.track.stop();
     });
 
     // close peer connection
-    setTimeout(function() {
+    setTimeout(function () {
         pc.close();
     }, 500);
 }
@@ -214,7 +226,7 @@ function sdpFilterCodec(kind, codec, realSdp) {
     var rtxRegex = new RegExp('a=fmtp:(\\d+) apt=(\\d+)\r$');
     var codecRegex = new RegExp('a=rtpmap:([0-9]+) ' + escapeRegExp(codec))
     var videoRegex = new RegExp('(m=' + kind + ' .*?)( ([0-9]+))*\\s*$')
-    
+
     var lines = realSdp.split('\n');
 
     var isKind = false;
